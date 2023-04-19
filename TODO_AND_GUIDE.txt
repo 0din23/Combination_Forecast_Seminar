@@ -1,0 +1,49 @@
+What about CONFIG.R?
+
+This is a file you have to make yourselfe. Here you can give the filepath and other variables.
+Its important to use the same variabels in it so everyone can make a CONFIG file and run the Code.
+
+
+External Packages?
+
+If your code uses external packages, load them either in the dependencies.R file,
+or use the dplyr::filter type notation.
+
+
+Functions?
+
+The Code will probably use a bunch of self written functions. If you create a smaller helper function,
+you can store it in the functions.R file. If you however create a larger more complicated function, just
+create a new file with an expressive name in the R/ folder. After you have done this, please ad your function 
+to the dependencies script so it will be initialized together with everthing else. 
+
+
+Putting it all together?
+
+We have to decide on this. So far I would propose we do it as follows.
+
+################################################################################
+# Name of Section #
+################################################################################
+
+# Specify Inputs (e.g. data the section above produces etc.)
+# CODE #
+
+# Explain output
+
+################################################################################
+# Name of next Section #
+################################################################################
+
+
+Style guide?
+
+We are not google so no need for beeing super correct with everything. Incidently however,
+the google style guide for R is a somewhat helpfull reference on how to write nice code.
+
+And please write expressive comments.:)
+
+
+
+
+

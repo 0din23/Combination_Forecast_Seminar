@@ -1,3 +1,16 @@
+To Do --------------------------------------------------------------------------
+
+# Functions
+- Function for Expanding Regression
+- SSE Function
+- Weighting function
+
+# What Is there 
+- Data processing
+- 
+
+
+--------------------------------------------------------------------------------
 What about CONFIG.R?
 
 This is a file you have to make yourselfe. Here you can give the filepath and other variables.
@@ -7,7 +20,7 @@ Its important to use the same variabels in it so everyone can make a CONFIG file
 External Packages?
 
 If your code uses external packages, load them either in the dependencies.R file,
-or use the dplyr::filter type notation.
+or use the dplyr::filter (prefered) type notation.
 
 
 Functions?

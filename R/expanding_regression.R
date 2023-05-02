@@ -1,4 +1,4 @@
-expanding_uni_regression <- function(y, x, date, m){
+expanding_uni_regression <- function(y, x, date, m,...){
   
   # Convert inputs to data frame
   res <- data.frame(
@@ -11,7 +11,7 @@ expanding_uni_regression <- function(y, x, date, m){
   res <- res %>% 
     cbind(., res%>% 
             select(-date) %>% 
-            rollapplyr(., width = seq(1,nrow(.),1), FUN = function(d) {
+            rollapplyr(., width = seq_along(x), FUN = function(d) {
               d <- as.data.frame(d)
               if(nrow(d) <= m){
                 return(c(NA,NA))

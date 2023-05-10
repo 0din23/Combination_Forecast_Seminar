@@ -70,7 +70,7 @@ original_sample_reg_df <- predictive_features %>%
   group_by(feature) %>% 
   mutate(
     epsilon_hist = Index_hist_mean - y, 
-    Net_SSE = cumsum(epsilon^2 - epsilon_hist^2)
+    Net_SSE = cumsum(epsilon_hist^2 - epsilon^2)
   ) %>% 
   ungroup(feature)
   

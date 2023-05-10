@@ -63,6 +63,7 @@ original_sample_reg_df <- predictive_features %>%
                              ) %>% 
       select(date, alpha, beta, y_hat, epsilon, feature_value = x, y) %>% 
       mutate("feature" = x)
+    return(res)
   }) %>% 
   rbindlist() %>% 
   left_join(., data %>% select(date = yyyyq, Index_hist_mean), by = c("date")) %>% 
@@ -74,14 +75,49 @@ original_sample_reg_df <- predictive_features %>%
   ) %>% 
   ungroup(feature)
   
+
+# Simple mean combination forecast
+combination_forecast <- original_sample_reg_df %>% 
+  select(date, feature, y_hat) %>% 
+  pivot_wider(data=., names_from = feature, values_from = y_hat) %>% 
+  mutate(
+    simple_mean = rowMeans(select(.,-date)),
+    simple_median = apply(select(.,-date),1,median),
+    trimmed_mean = apply(select(.,-date),1,function(x){
+      x[max(x)] <- 0
+      x[min(x)] <- 0
+      return(sum(x)/(length(x)-2))
+    })
+  ) %>% 
+  select(date, simple_mean, simple_median, trimmed_mean) %>% 
+  pivot_longer(data=., cols = c(simple_mean, simple_median, trimmed_mean),
+               names_to = "feature", values_to = "y_hat") %>%
+  left_join(.,
+            original_sample_reg_df %>% 
+              filter(feature == "D/P") %>% 
+              select(date, y, Index_hist_mean, epsilon_hist),
+            by = "date") %>% 
+  group_by(feature) %>% 
+  mutate(
+    epsilon = y-y_hat,
+    Net_SSE = cumsum(epsilon_hist^2 - epsilon^2)
+  ) %>% 
+  ungroup(feature)
+  
 ################################################################################
 # Plots #
 ################################################################################
+# Univariate
 original_sample_reg_df %>% 
     as.data.frame() %>% 
     ggplot(.) + 
     geom_line(aes(x = date, y = Net_SSE)) + 
     facet_wrap(~feature)
     
-
+# Combination Forecast
+combination_forecast %>% 
+  as.data.frame() %>% 
+  ggplot(.) + 
+  geom_line(aes(x = date, y = Net_SSE)) + 
+  facet_wrap(~feature)
 

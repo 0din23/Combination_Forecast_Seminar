@@ -16,7 +16,7 @@ data <- openxlsx::read.xlsx(xlsxFile = PATH_DATA) %>%
   mutate_at(colnames(.)[-1], as.numeric) %>% 
   filter(!is.na(Index_excess)) %>% 
   mutate(
-    Index_hist_mean = rollapplyr(Index_excess, width = seq_along(Index_excess), mean) %>% lag()
+    Index_hist_mean = rollapplyr(Index_excess, width = seq_along(Index_excess), mean)
   ) %>% 
   arrange(yyyyq) %>% 
   select(yyyyq, Index, Index_excess, Index_excess_forward, "B/M" = "b/m",

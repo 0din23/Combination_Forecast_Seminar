@@ -76,7 +76,22 @@ p5 = dff %>% ggplot(.) +
   geom_line(aes(x = date, y = DMSPE0.9)) 
   
 ggarrange(p1, p2,p3,p4,p5, ncol = 3, nrow = 2)  
-  
+
+
+
+
+
+##################forecast_evaluation##############
+q0 = 40  ####ten years initial holdout period
+q = 50   ####q=T-m-q0
+m = 40   ####first m observations ,in_sample portion
+forecast_evaluation <- original_sample_reg_df %>% 
+  group_by(feature) %>%
+  select(feature,y,y_hat,Index_hist_mean) %>%
+  filter(., between(row_number(), m+q0+1, m+q0+q)) %>%
+  group_by(feature) %>%
+  mutate(OOSR2 = 1- sum((y-y_hat)^2)/sum((y-Index_hist_mean)^2))%>% 
+  ungroup(feature)
 
 
 

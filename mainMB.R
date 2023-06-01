@@ -41,7 +41,7 @@ data <- openxlsx::read.xlsx(xlsxFile = PATH_DATA) %>%
     "D/E" = log(D12 / E12),
     "TMS" = LTY - TBL,
     "DFY" = AAA - BAA,
-    "DFR" = CORPR - LTR
+    "DFR" = CORPR - LTR,
   ) %>% 
   mutate_at(colnames(.)[-1], as.numeric)
 
@@ -175,3 +175,4 @@ data.frame(date = combination_forecast$date, Mean = cumsum(combination_forecast$
   scale_y_continuous(limits = c(-0.1, .1), breaks = seq(-.1, .1, by = .05)) + 
   geom_hline(yintercept = 0) +  # Add horizontal line at y = 0
   theme_bw() 
+

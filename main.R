@@ -43,10 +43,10 @@ data <- openxlsx::read.xlsx(xlsxFile = PATH_DATA) %>%
     estimated_var_excess =runSD(Index_excess, 40),
     estimated_var = runSD(Index_excess + TBL, 40),
   )
-
-data <- filter(data,yyyyq >= "1955 Q1" & yyyyq <= "2005 Q4")
-data <- filter(data,yyyyq >= "1955 Q1")
-data <- filter(data,yyyyq >= "1995 Q4")
+# 
+data <- filter(data,yyyyq >= "1947 Q1" & yyyyq <= "2005 Q4")
+# data <- filter(data,yyyyq >= "1955 Q1")
+# data <- filter(data,yyyyq >= "1995 Q4")
 # long_sample: yyyyq >= "1965 Q1"
 # short_sample: yyyyq >= "2006 Q1"
 # original_sample: (yyyyq >= "1965 Q1" & yyyyq <= "2005 Q4")
@@ -72,8 +72,11 @@ univariate_forecast <- predictive_features %>%
       mutate("feature" = x)
   }) %>% 
   rbindlist() %>% 
-  left_join(., data %>% select(date = yyyyq, Index_hist_mean), by = c("date")) %>% 
   filter(!is.na(alpha)) %>%
+  left_join(., data %>% select(date = yyyyq, Index_hist_mean), by = c("date")) %>% 
+  filter(date >= "1955 Q1" & date <= "2005 Q4") %>% 
+  # filter(date >= "1965 Q1") %>% 
+  # filter(date >= "2005 Q4") %>% 
   group_by(feature) %>% 
   mutate(
     epsilon_hist = Index_hist_mean - y, 
@@ -103,6 +106,7 @@ combination_forecast <- univariate_forecast%>%
               filter(feature == "D/P") %>% 
               select(date, y, Index_hist_mean, epsilon_hist),
             by = "date") %>% 
+  filter(date >= "1965 Q1" & date <= "2005 Q4") %>% 
   group_by(feature) %>% 
   mutate(
     epsilon = y-y_hat,
@@ -142,6 +146,7 @@ combination_forecast_2 <- univariate_forecast %>%
   ) %>% 
   pivot_longer(data=., cols = c("DMPSPE09", "DMPSPE1"), values_to = "y_hat",
                names_to = "feature") %>% 
+  filter(date >= "1965 Q1" & date <= "2005 Q4") %>% 
   group_by(feature) %>% 
   mutate(
     epsilon = y-y_hat,
@@ -157,6 +162,7 @@ combination_forecast <- combination_forecast %>%
 ################################################################################
 # Univariate
 univariate_forecast %>% 
+  filter(date >= "1965 Q1" & date <= "2005 Q4") %>% 
   ggplot(.) + 
   geom_line(aes(x = date, y = Net_SSE)) + 
   facet_wrap(~feature) + 
@@ -184,8 +190,11 @@ combination_forecast %>%
 necessary_columns <- c("date", "feature", "epsilon", "epsilon_hist", "Index_hist_mean", "y","y_hat")
 
 eval_data <- univariate_forecast %>% 
+  filter(date >= "1965 Q1" & date <= "2005 Q4") %>% 
   select(all_of(necessary_columns)) %>% 
-  rbind(., combination_forecast %>% select(all_of(necessary_columns))) %>% 
+  rbind(., combination_forecast %>%
+          filter(date >= "1965 Q1" & date <= "2005 Q4") %>% 
+          select(all_of(necessary_columns))) %>% 
   left_join(., data %>% select(yyyyq,estimated_var_excess, estimated_var, TBL), by = c("date"="yyyyq"))
 
 # R2os
@@ -204,12 +213,46 @@ eval_data %>%
     omega_0 = (1/gamma) * (Index_hist_mean / estimated_var_excess^2),
     omega_j = (1/gamma) * (y_hat / estimated_var_excess^2),
     
-    portfolio_hist_mean = lag((omega_0*y)) + (1-omega_0)*TBL,
-    portfolio_forecast = lag((omega_j*y)) + (1-omega_j)*TBL,
+    port_bench = lag(0.6*y) + 0.4*((1+TBL)^(1/4)-1),
+    portfolio_hist_mean = lag((omega_0*y)) + (1-omega_0)*((1+TBL)^(1/4)-1),
+    portfolio_forecast = lag((omega_j*y)) + (1-omega_j)*((1+TBL)^(1/4)-1),
   ) %>% 
   group_by(feature) %>% 
   summarize(
-    utility_0 = mean(portfolio_hist_mean) - (1/2)*sd(portfolio_hist_mean)^2
+    utility_60_40 = mean(port_bench,na.rm=T) - (1/2)*sd(port_bench,na.rm=T)^2,
+    utility_0 = mean(portfolio_hist_mean,na.rm=T) - (1/2)*sd(portfolio_hist_mean,na.rm=T)^2,
+    utility_j = mean(portfolio_forecast,na.rm=T) - (1/2)*sd(portfolio_forecast,na.rm=T)^2,
+    
+    utility_gain_bench = utility_j- utility_60_40
+    utility_gain_hist_mean = utility_j - utility_0
   )
+
+
+
+eval_data %>% 
+  mutate(
+    omega_0 = (1/gamma) * (Index_hist_mean / estimated_var_excess^2),
+    omega_j = (1/gamma) * (y_hat / estimated_var_excess^2),
+    
+    port_bench = lag(0.6*y) + 0.4*((1+TBL)^(1/4)-1),
+    portfolio_hist_mean = lag(omega_0*y) + (1-omega_0)*((1+TBL)^(1/4)-1),
+    portfolio_forecast = lag(omega_j*y) + (1-omega_j)*((1+TBL)^(1/4)-1),
+    
+  ) %>% 
+  na.omit() %>% 
+  group_by(feature) %>% 
+  mutate(
+    port_bench_cum = cumprod(1+port_bench),
+    portfolio_hist_mean_cum = cumprod(1+ portfolio_hist_mean),
+    portfolio_forecast_cum = cumprod(1+ portfolio_forecast)
+  ) %>% 
+  #filter(!(feature %in% c("LTY", "TBL"))) %>% 
+  ggplot(.) +
+  geom_line(aes(x=date, y = portfolio_hist_mean_cum, color = "hist. mean")) +
+  geom_line(aes(x=date, y = portfolio_forecast_cum, color = "Forecast")) +
+  geom_line(aes(x=date, y = port_bench_cum, color = "Benchmark")) +
+  facet_wrap(~feature)
+D
+
 
 

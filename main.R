@@ -38,11 +38,15 @@ data <- openxlsx::read.xlsx(xlsxFile = PATH_DATA) %>%
     "TMS" = LTY - TBL,
     "DFY" = AAA - BAA,
     "DFR" = CORPR - LTR
+  ) %>% 
+  mutate(
+    estimated_var_excess =runSD(Index_excess, 40),
+    estimated_var = runSD(Index_excess + TBL, 40),
   )
 
 data <- filter(data,yyyyq >= "1955 Q1" & yyyyq <= "2005 Q4")
 data <- filter(data,yyyyq >= "1955 Q1")
-data <- filter(data,yyyyq <= "2005 Q4")
+data <- filter(data,yyyyq >= "1995 Q4")
 # long_sample: yyyyq >= "1965 Q1"
 # short_sample: yyyyq >= "2006 Q1"
 # original_sample: (yyyyq >= "1965 Q1" & yyyyq <= "2005 Q4")
@@ -69,7 +73,7 @@ univariate_forecast <- predictive_features %>%
   }) %>% 
   rbindlist() %>% 
   left_join(., data %>% select(date = yyyyq, Index_hist_mean), by = c("date")) %>% 
-  filter(!is.na(alpha), between(date, as.yearqtr("1965 Q1"), as.yearqtr("2005 Q4"))) %>%
+  filter(!is.na(alpha)) %>%
   group_by(feature) %>% 
   mutate(
     epsilon_hist = Index_hist_mean - y, 
@@ -78,8 +82,8 @@ univariate_forecast <- predictive_features %>%
   ungroup(feature)
 
 
-# Simple mean combination forecast
-combination_forecast <- univariate_forecast %>% 
+## Combination Forecast
+combination_forecast <- univariate_forecast%>% 
   select(date, feature, y_hat) %>% 
   pivot_wider(data=., names_from = feature, values_from = y_hat) %>% 
   mutate(
@@ -95,7 +99,7 @@ combination_forecast <- univariate_forecast %>%
   pivot_longer(data=., cols = c(simple_mean, simple_median, trimmed_mean),
                names_to = "feature", values_to = "y_hat") %>%
   left_join(.,
-            original_sample_reg_df %>% 
+            univariate_forecast %>% 
               filter(feature == "D/P") %>% 
               select(date, y, Index_hist_mean, epsilon_hist),
             by = "date") %>% 
@@ -159,7 +163,8 @@ univariate_forecast %>%
   #scale_y_continuous(limits = c(-0.1, .1), breaks = seq(-.1, .1, by = .05)) + 
   geom_hline(yintercept = 0) +  # Add horizontal line at y = 0
   theme_bw() +
-  ggtitle(paste0("Evaluation Plots for: ",univariate_forecast$date[1], " to ", univariate_forecast$date %>% tail(.,1)))
+  ggtitle(paste0("Evaluation Plots for: ",univariate_forecast$date[1], " to ", univariate_forecast$date %>% tail(.,1)))+
+  theme(axis.text.x = element_text(angle = 70, vjust=0, hjust = 0))
 
 
 combination_forecast %>% 
@@ -170,5 +175,41 @@ combination_forecast %>%
   geom_hline(yintercept = 0) +  # Add horizontal line at y = 0
   theme_bw() +
   ggtitle(paste0("Evaluation Plots for: ",univariate_forecast$date[1], " to ", univariate_forecast$date %>% tail(.,1)))
+
+
+################################################################################
+# Tables #
+################################################################################
+
+necessary_columns <- c("date", "feature", "epsilon", "epsilon_hist", "Index_hist_mean", "y","y_hat")
+
+eval_data <- univariate_forecast %>% 
+  select(all_of(necessary_columns)) %>% 
+  rbind(., combination_forecast %>% select(all_of(necessary_columns))) %>% 
+  left_join(., data %>% select(yyyyq,estimated_var_excess, estimated_var, TBL), by = c("date"="yyyyq"))
+
+# R2os
+eval_data %>% 
+  group_by(feature) %>% 
+  summarize(
+    Ros = 1 - (sum(epsilon^2) / sum(epsilon_hist^2))
+  )
+
+
+# utility gain
+gamma <- 3
+
+eval_data %>% 
+  mutate(
+    omega_0 = (1/gamma) * (Index_hist_mean / estimated_var_excess^2),
+    omega_j = (1/gamma) * (y_hat / estimated_var_excess^2),
+    
+    portfolio_hist_mean = lag((omega_0*y)) + (1-omega_0)*TBL,
+    portfolio_forecast = lag((omega_j*y)) + (1-omega_j)*TBL,
+  ) %>% 
+  group_by(feature) %>% 
+  summarize(
+    utility_0 = mean(portfolio_hist_mean) - (1/2)*sd(portfolio_hist_mean)^2
+  )
 
 

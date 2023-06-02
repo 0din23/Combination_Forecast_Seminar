@@ -42,9 +42,13 @@ data <- openxlsx::read.xlsx(xlsxFile = PATH_DATA) %>%
   mutate(
     estimated_var_excess =runSD(Index_excess, 40),
     estimated_var = runSD(Index_excess + TBL, 40),
-  )
-# 
-data <- filter(data,yyyyq >= "1947 Q1" & yyyyq <= "2005 Q4")
+  ) %>%
+  filter(yyyyq >= "1947 Q1")
+
+
+os_backhold <- "1955 Q1"
+os_start <- "1965 Q1"
+end <- "2005 Q4"
 # data <- filter(data,yyyyq >= "1955 Q1")
 # data <- filter(data,yyyyq >= "1995 Q4")
 # long_sample: yyyyq >= "1965 Q1"
@@ -54,6 +58,8 @@ data <- filter(data,yyyyq >= "1947 Q1" & yyyyq <= "2005 Q4")
 ################################################################################
 # Single Parameter Predictive Regression #
 ################################################################################
+
+# Create Univariate Forecasts
 predictive_features <- c("D/P", "D/Y", "E/P", "D/E", "SVAR", "B/M", "NTIS",
                          "TBL", "LTY", "LTR", "TMS", "DFY", "DFR", "INFL", "I/K")
 
@@ -74,13 +80,10 @@ univariate_forecast <- predictive_features %>%
   rbindlist() %>% 
   filter(!is.na(alpha)) %>%
   left_join(., data %>% select(date = yyyyq, Index_hist_mean), by = c("date")) %>% 
-  filter(date >= "1955 Q1" & date <= "2005 Q4") %>% 
-  # filter(date >= "1965 Q1") %>% 
-  # filter(date >= "2005 Q4") %>% 
+  filter(date >= os_backhold & date <= end) %>% 
   group_by(feature) %>% 
   mutate(
-    epsilon_hist = Index_hist_mean - y, 
-    Net_SSE = cumsum( epsilon_hist^2 - epsilon^2)
+    epsilon_hist = Index_hist_mean - y
   ) %>% 
   ungroup(feature)
 
@@ -106,7 +109,7 @@ combination_forecast <- univariate_forecast%>%
               filter(feature == "D/P") %>% 
               select(date, y, Index_hist_mean, epsilon_hist),
             by = "date") %>% 
-  filter(date >= "1965 Q1" & date <= "2005 Q4") %>% 
+  filter(date >= os_start & date <= end) %>% 
   group_by(feature) %>% 
   mutate(
     epsilon = y-y_hat,
@@ -117,8 +120,6 @@ combination_forecast <- univariate_forecast%>%
 
 m = 40
 theta09 <- 0.9
-theta1 <- 1
-
 combination_forecast_2 <- univariate_forecast %>% 
   group_by(feature) %>% 
   mutate(
@@ -146,7 +147,7 @@ combination_forecast_2 <- univariate_forecast %>%
   ) %>% 
   pivot_longer(data=., cols = c("DMPSPE09", "DMPSPE1"), values_to = "y_hat",
                names_to = "feature") %>% 
-  filter(date >= "1965 Q1" & date <= "2005 Q4") %>% 
+  filter(date >= os_start & date <= end) %>% 
   group_by(feature) %>% 
   mutate(
     epsilon = y-y_hat,
@@ -154,15 +155,68 @@ combination_forecast_2 <- univariate_forecast %>%
   ) %>% 
   select(all_of(combination_forecast %>% colnames()))
   
+## Combine all data
 combination_forecast <- combination_forecast %>% 
   rbind(.,combination_forecast_2)
+
+univariate_forecast <- univariate_forecast %>% 
+  filter(date >= os_start & date <= end) %>% 
+  group_by(feature) %>% 
+  mutate(
+    Net_SSE = cumsum( epsilon_hist^2 - epsilon^2)
+  ) %>% 
+  ungroup(feature)
+
+
+
+## White Noise Test 
+wn_test <- paste0("WN_",c(1:100)) %>%
+  lapply(., function(x){
+    print(paste0("Feature: ", x))
+    res <- res[!is.na(as.numeric(data[["Index_excess_forward"]])),]
+    
+    res <- expanding_uni_regression(x = rnorm(n=nrow(res)),
+                                    y = res[["Index_excess_forward"]],
+                                    m = 40,
+                                    date = res[["yyyyq"]]
+    ) %>% 
+      select(date, alpha, beta, y_hat, epsilon, feature_value = x, y) %>% 
+      mutate("feature" = x)
+  }) %>% 
+  rbindlist() %>% 
+  filter(!is.na(alpha)) %>%
+  left_join(., data %>% select(date = yyyyq, Index_hist_mean), by = c("date")) %>% 
+  filter(date >= os_backhold & date <= end) %>% 
+  group_by(feature) %>% 
+  mutate(
+    epsilon_hist = Index_hist_mean - y
+  ) %>% 
+  ungroup(feature) %>% 
+  filter(date >= os_start & date <= end) %>% 
+  group_by(feature) %>% 
+  mutate(
+    Net_SSE = cumsum( epsilon_hist^2 - epsilon^2)
+  ) %>% 
+  ungroup(feature)
+
+  
+
+wn_test %>% 
+  group_by(feature) %>% 
+  summarize(
+    net_SSE = sum(epsilon^2)
+  ) %>% 
+  filter(
+    net_SSE <= quantile(net_SSE, probs = 0.2)
+  ) %>% 
+  arrange(net_SSE)
 
 ################################################################################
 # Plots #
 ################################################################################
 # Univariate
 univariate_forecast %>% 
-  filter(date >= "1965 Q1" & date <= "2005 Q4") %>% 
+  rbind(., wn_test %>% filter(feature == "WN_38")) %>% 
   ggplot(.) + 
   geom_line(aes(x = date, y = Net_SSE)) + 
   facet_wrap(~feature) + 
@@ -172,7 +226,6 @@ univariate_forecast %>%
   ggtitle(paste0("Evaluation Plots for: ",univariate_forecast$date[1], " to ", univariate_forecast$date %>% tail(.,1)))+
   theme(axis.text.x = element_text(angle = 70, vjust=0, hjust = 0))
 
-
 combination_forecast %>% 
   ggplot(.) + 
   geom_line(aes(x = date, y = Net_SSE)) + 
@@ -181,7 +234,6 @@ combination_forecast %>%
   geom_hline(yintercept = 0) +  # Add horizontal line at y = 0
   theme_bw() +
   ggtitle(paste0("Evaluation Plots for: ",univariate_forecast$date[1], " to ", univariate_forecast$date %>% tail(.,1)))
-
 
 ################################################################################
 # Tables #
@@ -209,25 +261,46 @@ eval_data %>%
 gamma <- 3
 
 eval_data %>% 
+  group_by(feature) %>% 
   mutate(
+    
     omega_0 = (1/gamma) * (Index_hist_mean / estimated_var_excess^2),
     omega_j = (1/gamma) * (y_hat / estimated_var_excess^2),
+    omega_j_lo = ifelse(omega_j < 0, 0,omega_j),
+    
     
     port_bench = lag(0.6*y) + 0.4*((1+TBL)^(1/4)-1),
     portfolio_hist_mean = lag((omega_0*y)) + (1-omega_0)*((1+TBL)^(1/4)-1),
     portfolio_forecast = lag((omega_j*y)) + (1-omega_j)*((1+TBL)^(1/4)-1),
+    portfolio_forecast_lo = lag((omega_j*y)) + (1-omega_j)*((1+TBL)^(1/4)-1),
+    
   ) %>% 
   group_by(feature) %>% 
   summarize(
+    
     utility_60_40 = mean(port_bench,na.rm=T) - (1/2)*sd(port_bench,na.rm=T)^2,
     utility_0 = mean(portfolio_hist_mean,na.rm=T) - (1/2)*sd(portfolio_hist_mean,na.rm=T)^2,
     utility_j = mean(portfolio_forecast,na.rm=T) - (1/2)*sd(portfolio_forecast,na.rm=T)^2,
+    utility_j_lo = mean(portfolio_forecast_lo,na.rm=T) - (1/2)*sd(portfolio_forecast_lo,na.rm=T)^2,
     
-    utility_gain_bench = utility_j- utility_60_40
-    utility_gain_hist_mean = utility_j - utility_0
+    utility_gain_bench = utility_j- utility_60_40,
+    utility_gain_hist_mean = utility_j - utility_0,
+    
+    under_perf_alloc_stock = mean((omega_j)* ifelse(portfolio_forecast < portfolio_hist_mean,1,0), na.rm=T),
+    under_perf_alloc_stock_diff = mean((omega_j-omega_0) * ifelse(portfolio_forecast < portfolio_hist_mean,1,0), na.rm=T),
+    
+    outlier_cach_upside_hist_mean = mean(omega_0 * ifelse(lag(y) < quantile(y, probs = 0.8),1,0), na.rm=T),
+    outlier_cach_upside_forecast = mean(omega_j * ifelse(lag(y) < quantile(y, probs = 0.8),1,0), na.rm=T)
+    
+  ) %>% View()
+
+eval_data %>% 
+  group_by(feature) %>% 
+  summarize(
+    sd_hist = sd(y, na.rm=T),
+    sd_fore = sd(y_hat, na.rm=T),
+    
   )
-
-
 
 eval_data %>% 
   mutate(
@@ -248,11 +321,40 @@ eval_data %>%
   ) %>% 
   #filter(!(feature %in% c("LTY", "TBL"))) %>% 
   ggplot(.) +
-  geom_line(aes(x=date, y = portfolio_hist_mean_cum, color = "hist. mean")) +
-  geom_line(aes(x=date, y = portfolio_forecast_cum, color = "Forecast")) +
-  geom_line(aes(x=date, y = port_bench_cum, color = "Benchmark")) +
+  geom_line(aes(x=date, y = portfolio_hist_mean_cum-1, color = "hist. mean")) +
+  geom_line(aes(x=date, y = portfolio_forecast_cum-1, color = "Forecast")) +
+  geom_line(aes(x=date, y = port_bench_cum-1, color = "Benchmark")) +
   facet_wrap(~feature)
 D
 
+eval_data %>% 
+  ggplot(.)+
+  #geom_histogram(aes(x = epsilon ),bins = 200) +
+  geom_density(aes(x=epsilon))+
+  geom_vline(xintercept = mean(eval_data$epsilon))+
+  facet_wrap(~feature)
 
 
+eval_data %>%
+  filter(feature == "TBL") %>% 
+  ggplot(.)+
+  #geom_histogram(aes(x = epsilon ),bins = 200) +
+  geom_density(aes(x=epsilon_hist))
+
+
+eval_data %>% 
+  filter(feature != "SVAR") %>% 
+  ggplot(.) +
+  geom_line(aes(x=date, y = y_hat)) +
+  facet_wrap(~feature)
+  
+
+################################################################################
+# EXPLORATION #
+################################################################################
+data %>% 
+  filter(yyyyq >= "1965 Q1") %>% 
+  select(all_of(predictive_features)) %>% 
+  mutate_all(as.numeric) %>% 
+  cor() %>% 
+  round(., 3) %>% View()

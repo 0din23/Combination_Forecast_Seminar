@@ -204,6 +204,25 @@ eval_data %>%
     Ros = 1 - (sum(epsilon^2) / sum(epsilon_hist^2))
   )
 
+# compute p-value
+#T = length(unique(eval_data$date))
+#q0=20 #initial holdout period
+eval_data = eval_data %>% mutate(f = epsilon_hist^2 - (epsilon^2-(Index_hist_mean-y_hat)^2))#%>%
+            #group_by(feature) %>%
+            #filter(.,between(row_number(), m+q0+1, T)) 
+features = unique(eval_data$feature)
+statistical_significance <- features %>%
+  sapply(., function(x){
+    df = eval_data %>% filter(feature == x) 
+    f = df$f
+    model = lm(f~1)
+    freedom = df.residual(model)
+    se <- summary(model)$coefficients[, "Std. Error"]
+    t_value <- coef(model) / se
+    p_value <- pt(t_value, freedom, lower.tail = FALSE)
+  })
+statistical_significance 
+
 
 # utility gain
 gamma <- 3

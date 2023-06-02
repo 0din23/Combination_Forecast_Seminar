@@ -173,7 +173,8 @@ univariate_forecast <- univariate_forecast %>%
 wn_test <- paste0("WN_",c(1:100)) %>%
   lapply(., function(x){
     print(paste0("Feature: ", x))
-    res <- res[!is.na(as.numeric(data[["Index_excess_forward"]])),]
+    
+    res <- data[!is.na(as.numeric(data[["Index_excess_forward"]])),]
     
     res <- expanding_uni_regression(x = rnorm(n=nrow(res)),
                                     y = res[["Index_excess_forward"]],
@@ -216,7 +217,7 @@ wn_test %>%
 ################################################################################
 # Univariate
 univariate_forecast %>% 
-  rbind(., wn_test %>% filter(feature == "WN_38")) %>% 
+  rbind(., wn_test %>% filter(feature == "WN_64")) %>% 
   ggplot(.) + 
   geom_line(aes(x = date, y = Net_SSE)) + 
   facet_wrap(~feature) + 

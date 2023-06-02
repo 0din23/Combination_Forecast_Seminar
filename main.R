@@ -87,6 +87,22 @@ univariate_forecast <- predictive_features %>%
   ) %>% 
   ungroup(feature)
 
+## campbell thompson forecast
+pf_df <- data.frame(
+  "feature" = predictive_features,
+  "CT_sing"=c(1, 1, 1, 1, 1, 1, -1,
+           -1, -1, 1, -1, -1, 1, -1, -1)
+)
+
+univariate_forecast <- univariate_forecast %>% 
+  left_join(., pf_df, by = "feature") %>% 
+  mutate(
+    CT_beta = ifelse(beta*CT_sing>0, beta,0),
+    CT_y_hat = ifelse(CT_beta > 0, alpha + CT_beta * feature_value, Index_hist_mean),
+    CT_y_hat = ifelse(CT_y_hat < 0, 0, CT_y_hat)
+  )
+
+
 
 ## Combination Forecast
 combination_forecast <- univariate_forecast%>% 
@@ -163,7 +179,9 @@ univariate_forecast <- univariate_forecast %>%
   filter(date >= os_start & date <= end) %>% 
   group_by(feature) %>% 
   mutate(
-    Net_SSE = cumsum( epsilon_hist^2 - epsilon^2)
+    epsilon_ct = y-CT_y_hat,
+    Net_SSE = cumsum(epsilon_hist^2 - epsilon^2),
+    Net_SSE_ct = cumsum(epsilon_hist^2 - epsilon_ct^2),
   ) %>% 
   ungroup(feature)
 
@@ -196,11 +214,9 @@ wn_test <- paste0("WN_",c(1:100)) %>%
   filter(date >= os_start & date <= end) %>% 
   group_by(feature) %>% 
   mutate(
-    Net_SSE = cumsum( epsilon_hist^2 - epsilon^2)
+    Net_SSE = cumsum(epsilon_hist^2 - epsilon^2)
   ) %>% 
   ungroup(feature)
-
-  
 
 wn_test %>% 
   group_by(feature) %>% 
@@ -217,9 +233,12 @@ wn_test %>%
 ################################################################################
 # Univariate
 univariate_forecast %>% 
-  rbind(., wn_test %>% filter(feature == "WN_64")) %>% 
+  select(-c(CT_sing, CT_beta, CT_y_hat, epsilon_ct)) %>% 
+  rbind(., wn_test %>% filter(feature == "WN_17") %>% 
+          mutate(Net_SSE_ct = Net_SSE)) %>% 
   ggplot(.) + 
-  geom_line(aes(x = date, y = Net_SSE)) + 
+  geom_line(aes(x = date, y = Net_SSE, color = "Original")) + 
+  geom_line(aes(x = date, y = Net_SSE_ct, color = "CT")) + 
   facet_wrap(~feature) + 
   #scale_y_continuous(limits = c(-0.1, .1), breaks = seq(-.1, .1, by = .05)) + 
   geom_hline(yintercept = 0) +  # Add horizontal line at y = 0

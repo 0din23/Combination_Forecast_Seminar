@@ -188,6 +188,7 @@ univariate_forecast <- univariate_forecast %>%
 
 
 ## White Noise Test 
+set.seed(1234)
 wn_test <- paste0("WN_",c(1:100)) %>%
   lapply(., function(x){
     print(paste0("Feature: ", x))
@@ -234,11 +235,11 @@ wn_test %>%
 # Univariate
 univariate_forecast %>% 
   select(-c(CT_sing, CT_beta, CT_y_hat, epsilon_ct)) %>% 
-  rbind(., wn_test %>% filter(feature == "WN_17") %>% 
+  rbind(., wn_test %>% filter(feature == "WN_14") %>% 
           mutate(Net_SSE_ct = Net_SSE)) %>% 
   ggplot(.) + 
   geom_line(aes(x = date, y = Net_SSE, color = "Original")) + 
-  geom_line(aes(x = date, y = Net_SSE_ct, color = "CT")) + 
+  geom_line(aes(x = date, y = Net_SSE_ct, color = "CT Restricted")) + 
   facet_wrap(~feature) + 
   #scale_y_continuous(limits = c(-0.1, .1), breaks = seq(-.1, .1, by = .05)) + 
   geom_hline(yintercept = 0) +  # Add horizontal line at y = 0

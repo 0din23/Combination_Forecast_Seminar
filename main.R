@@ -266,10 +266,10 @@ combination_forecast %>%
 necessary_columns <- c("date", "feature", "epsilon", "epsilon_hist", "Index_hist_mean", "y","y_hat")
 
 eval_data <- univariate_forecast %>% 
-  filter(date >= "1965 Q1" & date <= "2005 Q4") %>% 
+  filter(date >= os_start & date <= end) %>% 
   select(all_of(necessary_columns)) %>% 
   rbind(., combination_forecast %>%
-          filter(date >= "1965 Q1" & date <= "2005 Q4") %>% 
+          filter(date >= os_start & date <= end) %>% 
           select(all_of(necessary_columns))) %>% 
   left_join(., data %>% select(yyyyq,estimated_var_excess, estimated_var, TBL), by = c("date"="yyyyq"))
 

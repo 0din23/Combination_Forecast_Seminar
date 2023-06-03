@@ -170,10 +170,11 @@ combination_forecast_2 <- univariate_forecast %>%
     Net_SSE = cumsum(epsilon_hist^2 - epsilon^2)
   ) %>% 
   select(all_of(combination_forecast %>% colnames()))
-  
+
+
 ## Combine all data
 combination_forecast <- combination_forecast %>% 
-  rbind(.,combination_forecast_2)
+  rbind(.,combination_forecast_2) 
 
 univariate_forecast <- univariate_forecast %>% 
   filter(date >= os_start & date <= end) %>% 
@@ -189,7 +190,7 @@ univariate_forecast <- univariate_forecast %>%
 
 ## White Noise Test 
 set.seed(1234)
-wn_test <- paste0("WN_",c(1:100)) %>%
+wn_test <- paste0("WN_",c(1:250)) %>%
   lapply(., function(x){
     print(paste0("Feature: ", x))
     
@@ -219,15 +220,17 @@ wn_test <- paste0("WN_",c(1:100)) %>%
   ) %>% 
   ungroup(feature)
 
-wn_test %>% 
+wn_realization <- wn_test %>% 
   group_by(feature) %>% 
   summarize(
     net_SSE = sum(epsilon^2)
   ) %>% 
   filter(
-    net_SSE <= quantile(net_SSE, probs = 0.2)
-  ) %>% 
-  arrange(net_SSE)
+    net_SSE <= quantile(net_SSE, probs = 0.05)
+  ) %>%
+  arrange(net_SSE) %>% 
+  tail(.,1) %>% 
+  pull(feature)
 
 ################################################################################
 # Plots #
@@ -235,7 +238,7 @@ wn_test %>%
 # Univariate
 univariate_forecast %>% 
   select(-c(CT_sing, CT_beta, CT_y_hat, epsilon_ct)) %>% 
-  rbind(., wn_test %>% filter(feature == "WN_14") %>% 
+  rbind(., wn_test %>% filter(feature == wn_realization) %>% 
           mutate(Net_SSE_ct = Net_SSE)) %>% 
   ggplot(.) + 
   geom_line(aes(x = date, y = Net_SSE, color = "Original")) + 
@@ -335,14 +338,6 @@ eval_data %>%
   ) %>% View()
 
 eval_data %>% 
-  group_by(feature) %>% 
-  summarize(
-    sd_hist = sd(y, na.rm=T),
-    sd_fore = sd(y_hat, na.rm=T),
-    
-  )
-
-eval_data %>% 
   mutate(
     omega_0 = (1/gamma) * (Index_hist_mean / estimated_var_excess^2),
     omega_j = (1/gamma) * (y_hat / estimated_var_excess^2),
@@ -359,13 +354,15 @@ eval_data %>%
     portfolio_hist_mean_cum = cumprod(1+ portfolio_hist_mean),
     portfolio_forecast_cum = cumprod(1+ portfolio_forecast)
   ) %>% 
-  #filter(!(feature %in% c("LTY", "TBL"))) %>% 
+  #filter(date >= "2005 Q4") %>% 
   ggplot(.) +
   geom_line(aes(x=date, y = portfolio_hist_mean_cum-1, color = "hist. mean")) +
   geom_line(aes(x=date, y = portfolio_forecast_cum-1, color = "Forecast")) +
   geom_line(aes(x=date, y = port_bench_cum-1, color = "Benchmark")) +
-  facet_wrap(~feature)
-D
+  facet_wrap(~feature) +
+  theme_bw() + ylab("cum. Return") +
+  theme(axis.text.x = element_text(angle = 70, vjust=0, hjust = 0))
+
 
 eval_data %>% 
   ggplot(.)+
@@ -397,4 +394,4 @@ data %>%
   select(all_of(predictive_features)) %>% 
   mutate_all(as.numeric) %>% 
   cor() %>% 
-  round(., 3) %>% View()
+  round(., 3) %>% xtable::xtable()

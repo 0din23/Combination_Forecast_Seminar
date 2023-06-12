@@ -46,9 +46,9 @@ data <- openxlsx::read.xlsx(xlsxFile = PATH_DATA) %>%
   filter(yyyyq >= "1947 Q1")
 
 
-os_backhold <- "1955 Q1"
-os_start <- "1965 Q1"
-end <- "2005 Q4"
+os_backhold <- "1995 Q1"
+os_start <- "2005 Q4"
+end <- "2022 Q4"
 # data <- filter(data,yyyyq >= "1955 Q1")
 # data <- filter(data,yyyyq >= "1995 Q4")
 # long_sample: yyyyq >= "1965 Q1"
@@ -277,7 +277,7 @@ eval_data <- univariate_forecast %>%
 eval_data %>% 
   group_by(feature) %>% 
   summarize(
-    Ros = 1 - (sum(epsilon^2) / sum(epsilon_hist^2))
+    Ros = 100*(1 - (sum(epsilon^2) / sum(epsilon_hist^2)))
   )
 
 # compute p-value
@@ -309,25 +309,26 @@ eval_data %>%
     
     omega_0 = (1/gamma) * (Index_hist_mean / estimated_var_excess^2),
     omega_j = (1/gamma) * (y_hat / estimated_var_excess^2),
-    omega_j_lo = ifelse(omega_j < 0, 0,omega_j),
+    
+    # restriction
+    omega_j = ifelse(omega_j > 1.5,1.5,omega_j),
+    omega_j = ifelse(omega_j < 0,0,omega_j),
     
     
     port_bench = lag(0.6*y) + 0.4*((1+TBL)^(1/4)-1),
     portfolio_hist_mean = lag((omega_0*y)) + (1-omega_0)*((1+TBL)^(1/4)-1),
     portfolio_forecast = lag((omega_j*y)) + (1-omega_j)*((1+TBL)^(1/4)-1),
-    portfolio_forecast_lo = lag((omega_j*y)) + (1-omega_j)*((1+TBL)^(1/4)-1),
     
   ) %>% 
   group_by(feature) %>% 
   summarize(
     
-    utility_60_40 = mean(port_bench,na.rm=T) - (1/2)*sd(port_bench,na.rm=T)^2,
-    utility_0 = mean(portfolio_hist_mean,na.rm=T) - (1/2)*sd(portfolio_hist_mean,na.rm=T)^2,
-    utility_j = mean(portfolio_forecast,na.rm=T) - (1/2)*sd(portfolio_forecast,na.rm=T)^2,
-    utility_j_lo = mean(portfolio_forecast_lo,na.rm=T) - (1/2)*sd(portfolio_forecast_lo,na.rm=T)^2,
+    utility_60_40 = mean(port_bench,na.rm=T) - (gamma/2)*sd(port_bench,na.rm=T)^2,
+    utility_0 = mean(portfolio_hist_mean,na.rm=T) - (gamma/2)*sd(portfolio_hist_mean,na.rm=T)^2,
+    utility_j = mean(portfolio_forecast,na.rm=T) - (gamma/2)*sd(portfolio_forecast,na.rm=T)^2,
     
-    utility_gain_bench = utility_j- utility_60_40,
-    utility_gain_hist_mean = utility_j - utility_0,
+    utility_gain_bench = (utility_j- utility_60_40)*400,
+    utility_gain_hist_mean = (utility_j - utility_0)*400,
     
     under_perf_alloc_stock = mean((omega_j)* ifelse(portfolio_forecast < portfolio_hist_mean,1,0), na.rm=T),
     under_perf_alloc_stock_diff = mean((omega_j-omega_0) * ifelse(portfolio_forecast < portfolio_hist_mean,1,0), na.rm=T),
@@ -335,12 +336,20 @@ eval_data %>%
     outlier_cach_upside_hist_mean = mean(omega_0 * ifelse(lag(y) < quantile(y, probs = 0.8),1,0), na.rm=T),
     outlier_cach_upside_forecast = mean(omega_j * ifelse(lag(y) < quantile(y, probs = 0.8),1,0), na.rm=T)
     
-  ) %>% View()
+  ) %>%
+  select(feature, utility_gain_hist_mean) %>% 
+  mutate(utility_gain_hist_mean = round(utility_gain_hist_mean,2)) %>% 
+  View()
+  
 
 eval_data %>% 
   mutate(
     omega_0 = (1/gamma) * (Index_hist_mean / estimated_var_excess^2),
     omega_j = (1/gamma) * (y_hat / estimated_var_excess^2),
+    
+    # restriction
+    omega_j = ifelse(omega_j > 1.5,1.5,omega_j),
+    omega_j = ifelse(omega_j < 0,0,omega_j),
     
     port_bench = lag(0.6*y) + 0.4*((1+TBL)^(1/4)-1),
     portfolio_hist_mean = lag(omega_0*y) + (1-omega_0)*((1+TBL)^(1/4)-1),
@@ -364,12 +373,12 @@ eval_data %>%
   theme(axis.text.x = element_text(angle = 70, vjust=0, hjust = 0))
 
 
-eval_data %>% 
-  ggplot(.)+
-  #geom_histogram(aes(x = epsilon ),bins = 200) +
-  geom_density(aes(x=epsilon))+
-  geom_vline(xintercept = mean(eval_data$epsilon))+
-  facet_wrap(~feature)
+# eval_data %>% 
+#   ggplot(.)+
+#   #geom_histogram(aes(x = epsilon ),bins = 200) +
+#   geom_density(aes(x=epsilon))+
+#   geom_vline(xintercept = mean(eval_data$epsilon))+
+#   facet_wrap(~feature)
 
 
 eval_data %>%

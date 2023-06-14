@@ -10,38 +10,41 @@ data <- openxlsx::read.xlsx(xlsxFile = PATH_DATA) %>%
     yyyyq = yyyyq %>% as.character() %>% as.yearqtr(., "%Y%q"),
     Rfree = Rfree %>% as.numeric(),
     Index = Index %>% gsub(",", "", .) %>% as.numeric(),
-    Index_excess = (as.numeric(CRSP_SPvwx) - Rfree),
-    Index_excess_forward = shift(as.numeric(CRSP_SPvwx) - Rfree, -1),
+    #Index_excess = (as.numeric(CRSP_SPvwx) - Rfree),
+    Index_excess = log(1 + as.numeric(CRSP_SPvw)) - log(1 + as.numeric(Rfree)),
+    Index_excess_forward = shift(Index_excess, -1),
   ) %>% 
   filter(!is.na(Index_excess)) %>% 
+  filter(yyyyq >= "1947 Q1") %>% 
   mutate(
-    Index_hist_mean = rollapplyr(Index_excess, width = seq_along(Index_excess), mean)
+    Index_hist_mean = (cumsum(Index_excess)-as.numeric(Index_excess)) / (c(1:nrow(.))-1)
   ) %>% 
   arrange(yyyyq) %>% 
   select(yyyyq, Index, Index_excess, Index_excess_forward, "B/M" = "b/m",
-         SVAR = svar, "I/K" = ik, "NTIS" = ntis, LTY = lty,
-         LTR = ltr, E12, D12, "TBL" = Rfree, AAA, BAA, Index_hist_mean,
-         "INFL" = infl, CORPR = corpr) %>% 
+         SVAR = svar, "NTIS" = ntis, LTY = lty,
+         LTR = ltr, E12, D12, "TBL" = tbl, AAA, BAA, Index_hist_mean,
+         "INFL" = infl, ik, CORPR = corpr, CRSP_SPvw, Rfree) %>% 
   mutate(
+    "I/K" = ik %>% as.numeric() %>% lag(),
     "D12" = D12 %>% as.numeric(),
     "E12" = E12 %>% as.numeric(),
     "LTY" = LTY %>% as.numeric(),
     "LTR" = LTR %>% as.numeric(),
     "AAA" = AAA %>% as.numeric(),
     "BAA" = BAA %>% as.numeric(),
-    "INFL" = INFL %>% as.numeric(),
+    "INFL" = INFL %>% as.numeric() %>% lag(),
     "CORPR" = CORPR %>% as.numeric(),
     "D/Y" = log(D12 / lag(Index)),
     "D/P" = log(D12 / Index),
     "E/P" = E12 / Index,
     "D/E" = log(D12 / E12),
-    "TMS" = LTY - TBL,
+    "TMS" = LTY - as.numeric(TBL),
     "DFY" = AAA - BAA,
     "DFR" = CORPR - LTR
   ) %>% 
   mutate(
     estimated_var_excess =runSD(Index_excess, 40),
-    estimated_var = runSD(Index_excess + TBL, 40),
+    estimated_var = runSD(CRSP_SPvw, 40),
   ) %>%
   filter(yyyyq >= "1947 Q1")
 
@@ -250,6 +253,7 @@ univariate_forecast %>%
   ggtitle(paste0("Evaluation Plots for: ",univariate_forecast$date[1], " to ", univariate_forecast$date %>% tail(.,1)))+
   theme(axis.text.x = element_text(angle = 70, vjust=0, hjust = 0))
 
+
 combination_forecast %>% 
   ggplot(.) + 
   geom_line(aes(x = date, y = Net_SSE)) + 
@@ -271,13 +275,14 @@ eval_data <- univariate_forecast %>%
   rbind(., combination_forecast %>%
           filter(date >= os_start & date <= end) %>% 
           select(all_of(necessary_columns))) %>% 
-  left_join(., data %>% select(yyyyq,estimated_var_excess, estimated_var, TBL), by = c("date"="yyyyq"))
+  left_join(., data %>% select(yyyyq,estimated_var_excess, estimated_var, TBL, CRSP_SPvw), by = c("date"="yyyyq"))
 
 # R2os
 eval_data %>% 
+  na.omit() %>% 
   group_by(feature) %>% 
   summarize(
-    Ros = 100*(1 - (sum(epsilon^2) / sum(epsilon_hist^2)))
+    Ros = 100*(1 - (sum((y-y_hat)^2) / sum((y-Index_hist_mean)^2)))
   )
 
 # compute p-value
@@ -303,21 +308,26 @@ statistical_significance
 # utility gain
 gamma <- 3
 
-eval_data %>% 
+portfolio_eval <- eval_data %>% 
   group_by(feature) %>% 
   mutate(
     
-    omega_0 = (1/gamma) * (Index_hist_mean / estimated_var_excess^2),
-    omega_j = (1/gamma) * (y_hat / estimated_var_excess^2),
+    y_hat_simple = exp(y_hat)-1,
+    
+    omega_0 = (1/gamma) * (Index_hist_mean / estimated_var^2),
+    omega_j = (1/gamma) * (y_hat_simple / estimated_var^2),
     
     # restriction
+    omega_0 = ifelse(omega_0 > 1.5,1.5,omega_0),
+    omega_0 = ifelse(omega_0 < 0,0,omega_0),
+    
     omega_j = ifelse(omega_j > 1.5,1.5,omega_j),
     omega_j = ifelse(omega_j < 0,0,omega_j),
     
     
-    port_bench = lag(0.6*y) + 0.4*((1+TBL)^(1/4)-1),
-    portfolio_hist_mean = lag((omega_0*y)) + (1-omega_0)*((1+TBL)^(1/4)-1),
-    portfolio_forecast = lag((omega_j*y)) + (1-omega_j)*((1+TBL)^(1/4)-1),
+    port_bench = 0.6*as.numeric(CRSP_SPvw) + 0.4*((1+TBL)^(1/4)-1),
+    portfolio_hist_mean = lag(omega_0)*as.numeric(CRSP_SPvw) + (1-lag(omega_0))*((1+TBL)^(1/4)-1),
+    portfolio_forecast = lag(omega_j)*as.numeric(CRSP_SPvw) + (1-lag(omega_j))*((1+TBL)^(1/4)-1),
     
   ) %>% 
   group_by(feature) %>% 
@@ -330,17 +340,139 @@ eval_data %>%
     utility_gain_bench = (utility_j- utility_60_40)*400,
     utility_gain_hist_mean = (utility_j - utility_0)*400,
     
-    under_perf_alloc_stock = mean((omega_j)* ifelse(portfolio_forecast < portfolio_hist_mean,1,0), na.rm=T),
-    under_perf_alloc_stock_diff = mean((omega_j-omega_0) * ifelse(portfolio_forecast < portfolio_hist_mean,1,0), na.rm=T),
+    #under_perf_alloc_stock = mean((omega_j)* ifelse(portfolio_forecast < portfolio_hist_mean,1,0), na.rm=T),
+    #under_perf_alloc_stock_diff = mean((omega_j-omega_0) * ifelse(portfolio_forecast < portfolio_hist_mean,1,0), na.rm=T),
     
-    outlier_cach_upside_hist_mean = mean(omega_0 * ifelse(lag(y) < quantile(y, probs = 0.8),1,0), na.rm=T),
-    outlier_cach_upside_forecast = mean(omega_j * ifelse(lag(y) < quantile(y, probs = 0.8),1,0), na.rm=T)
+    #outlier_cach_upside_hist_mean = mean(omega_0 * ifelse(lag(y) < quantile(y, probs = 0.8),1,0), na.rm=T),
+    #outlier_cach_upside_forecast = mean(omega_j * ifelse(lag(y) < quantile(y, probs = 0.8),1,0), na.rm=T)
     
   ) %>%
-  select(feature, utility_gain_hist_mean) %>% 
-  mutate(utility_gain_hist_mean = round(utility_gain_hist_mean,2)) %>% 
-  View()
+  #select(feature, utility_gain_hist_mean) %>% 
+  mutate(utility_gain_hist_mean = round(utility_gain_hist_mean,2))
   
+portfolio_eval %>% 
+  select(feature, utility_j, utility_gain_bench, utility_gain_hist_mean) %>% 
+  pivot_longer(data=., cols = c("utility_j", "utility_gain_bench", "utility_gain_hist_mean")) %>% 
+  ggplot(.) +
+  geom_col(aes(y=value, x = feature, fill = name), position="dodge")
+
+
+
+
+
+
+
+# Here are Niklas Plots, Please do not touch ####################################
+gamma <- 3
+
+portfolio_eval <- eval_data %>% 
+  group_by(feature) %>% 
+  mutate(
+    
+    y_hat_simple = exp(y_hat)-1,
+    TBL = as.numeric(TBL),
+    
+    omega_0 = (1/gamma) * (Index_hist_mean / estimated_var^2),
+    omega_j = (1/gamma) * (y_hat_simple / estimated_var^2),
+    
+    # restriction
+    omega_0 = ifelse(omega_0 > 1.5,1.5,omega_0),
+    omega_0 = ifelse(omega_0 < 0,0,omega_0),
+    
+    omega_j = ifelse(omega_j > 1.5,1.5,omega_j),
+    omega_j = ifelse(omega_j < 0,0,omega_j),
+    
+    
+    port_bench = 0.6*as.numeric(CRSP_SPvw) + 0.4*((1+TBL)^(1/4)-1),
+    portfolio_hist_mean = lag(omega_0)*as.numeric(CRSP_SPvw) + (1-lag(omega_0))*((1+TBL)^(1/4)-1),
+    portfolio_forecast = lag(omega_j)*as.numeric(CRSP_SPvw) + (1-lag(omega_j))*((1+TBL)^(1/4)-1),
+    
+  ) 
+portfolio_eval%>% 
+  group_by(feature) %>% 
+  summarize(
+    
+    utility_60_40 = mean(port_bench,na.rm=T) - (gamma/2)*sd(port_bench,na.rm=T)^2,
+    utility_0 = mean(portfolio_hist_mean,na.rm=T) - (gamma/2)*sd(portfolio_hist_mean,na.rm=T)^2,
+    utility_j = mean(portfolio_forecast,na.rm=T) - (gamma/2)*sd(portfolio_forecast,na.rm=T)^2,
+    
+    utility_gain_bench = round((utility_j- utility_60_40)*400,2),
+    utility_gain_hist_mean = round((utility_j - utility_0)*400,2)
+  )
+
+## Tabelle und Barchart for empirical results
+barchart_features <- c("simple_mean", "trimmed_mean", "simple_median", "D/Y", "TMS",
+                       "TMS", "INFL", "I/K", "SVAR", "TBL")
+  
+portfolio_eval %>% 
+  group_by(feature) %>% 
+  summarize(
+    utility_60_40 = mean(port_bench,na.rm=T) - (gamma/2)*sd(port_bench,na.rm=T)^2,
+    utility_0 = mean(portfolio_hist_mean,na.rm=T) - (gamma/2)*sd(portfolio_hist_mean,na.rm=T)^2,
+    utility_j = mean(portfolio_forecast,na.rm=T) - (gamma/2)*sd(portfolio_forecast,na.rm=T)^2,
+    
+    utility_gain_bench = round((utility_j- utility_60_40)*400,2),
+    utility_gain_hist_mean = round((utility_j - utility_0)*400,2),
+    utility_j = round(utility_j*400,2)
+  ) %>% 
+  select(feature, "Utility gain vs. Benchmark" = utility_gain_bench,
+         "Utility gain vs. hist. mean" = utility_gain_hist_mean) %>% 
+  filter(feature %in% barchart_features) %>% 
+  pivot_longer(data=., cols = c("Utility gain vs. Benchmark", "Utility gain vs. hist. mean")) %>% 
+  ggplot(.) +
+  geom_col(aes(y=value, x = feature, fill = name), position="dodge") +
+  theme_tq() + ylab("Model") + xlab("Utility Gain") +
+  theme(axis.text.x = element_text(angle = 0, vjust=0.2, hjust = 0))
+
+
+
+## Equitylines to show performance
+portfolio_eval %>% 
+  filter(feature %in% barchart_features) %>%
+  na.omit() %>% 
+  mutate(forecast_cumret = cumprod(1+portfolio_forecast)-1,
+         bench_cumret = cumprod(1+port_bench)-1) %>% 
+  ggplot(.) +
+  geom_line(aes(x=date, y=forecast_cumret, color = feature)) +
+  geom_line(aes(x=date, y=bench_cumret, color = "Bench"))
+
+portfolio_eval %>% 
+  group_by(feature) %>% 
+  na.omit() %>% 
+  summarize(
+    return_ann = 100*(tail(cumprod(portfolio_forecast+1),1)^(4/n())-1),
+    Vol = sd(portfolio_forecast, na.rm=T)*200,
+    Sharpe_simple = return_ann / Vol
+  )
+
+## Weight line chart
+portfolio_eval %>% 
+  filter(feature == "TMS") %>% 
+  ggplot(.) +
+  geom_line(aes(x=date, y=omega_j, color = feature))
+
+
+## Contribution to performance
+portfolio_eval %>% 
+  filter(feature == "TMS") %>% 
+  ggplot(.) +
+  geom_point(aes(x=lag(omega_j), y=as.numeric(CRSP_SPvw)))
+
+
+portfolio_eval %>% 
+  na.omit() %>% 
+  group_by(feature) %>% 
+  summarize(
+    ret_cor = mean((lag(omega_j)*as.numeric(CRSP_SPvw))^2, na.rm=T) -
+      mean(lag(omega_j)*as.numeric(CRSP_SPvw), na.rm=T)^2,
+    
+    tbl_cor = mean((lag(omega_j)*as.numeric(TBL))^2, na.rm=T) -
+      mean(lag(omega_j)*as.numeric(TBL), na.rm=T)^2,
+    
+    ret_cor = round(ret_cor, 3),
+    tbl_cor = round(tbl_cor, 3)
+  )
+
 
 eval_data %>% 
   mutate(
